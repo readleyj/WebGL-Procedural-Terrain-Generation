@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+precision mediump float;
+
+vec3 mod289(vec3 x) {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 mod289(vec4 x) {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 permute(vec4 x) {
+     return mod289(((x*34.0)+1.0)*x);
+}
+
+vec4 taylorInvSqrt(vec4 r) {
+  return 1.79284291400159 - 0.85373472095314 * r;
+}
+
+float Simplex3D(vec3 v) {
+  const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+  const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+
+  vec3 i  = floor(v + dot(v, C.yyy) );
+  vec3 x0 =   v - i + dot(i, C.xxx) ;
+
+  vec3 g = step(x0.yzx, x0.xyz);
+  vec3 l = 1.0 - g;
+  vec3 i1 = min( g.xyz, l.zxy );
+  vec3 i2 = max( g.xyz, l.zxy );
+
+  vec3 x1 = x0 - i1 + C.xxx;
+  vec3 x2 = x0 - i2 + C.yyy; // 2.0*C.x = 1/3 = C.y
+  vec3 x3 = x0 - D.yyy;      // -1.0+3.0*C.x = -0.5 = -D.y
+
+  i = mod289(i);
+  vec4 p = permute( permute( permute(
+             i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+           + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
+           + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+
+  float n_ = 0.142857142857; // 1.0/7.0
+  vec3  ns = n_ * D.wyz - D.xzx;
+
+  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);  //  mod(p,7*7)
+
+  vec4 x_ = floor(j * ns.z);
+  vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
+
+  vec4 x = x_ *ns.x + ns.yyyy;
+  vec4 y = y_ *ns.x + ns.yyyy;
+  vec4 h = 1.0 - abs(x) - abs(y);
+
+  vec4 b0 = vec4( x.xy, y.xy );
+  vec4 b1 = vec4( x.zw, y.zw );
+
+  vec4 s0 = floor(b0)*2.0 + 1.0;
+  vec4 s1 = floor(b1)*2.0 + 1.0;
+  vec4 sh = -step(h, vec4(0.0));
+
+  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+
+  vec3 p0 = vec3(a0.xy,h.x);
+  vec3 p1 = vec3(a0.zw,h.y);
+  vec3 p2 = vec3(a1.xy,h.z);
+  vec3 p3 = vec3(a1.zw,h.w);
+
+  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+  p0 *= norm.x;
+  p1 *= norm.y;
+  p2 *= norm.z;
+  p3 *= norm.w;
+
+  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+  m = m * m;
+  return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1),
+                                dot(p2,x2), dot(p3,x3) ) );
+  }
+
+attribute vec4 v_Norm;
+attribute vec4 v_Pos;
+attribute vec2 v_TexCoord;
+
+uniform vec4 v_Light0;
+uniform vec4 v_Light1;
+uniform vec4 v_Camera;
+
+uniform mat4 m_Model;
+uniform mat4 m_View;
+uniform mat4 m_Proj;
+
+uniform float MAX_HEIGHT;
+uniform float v_Time;
+
+varying vec3 o_Norm;
+varying vec3 o_Camera;
+varying vec3 o_Light0;
+varying vec3 o_Light1;
+varying vec2 f_TexCoord;
+varying float f_vertexHeight;
+varying float f_biomeType;
+
+void main() 
+{
+    float scaledHeight = v_Pos[1] / MAX_HEIGHT;
+    vec4 newPos = v_Pos;
+    
+    if (scaledHeight < 0.04) {
+        float disp1 =  Simplex3D(vec3(newPos.x, newPos.z, v_Time / 15.0));
+        float disp2 =  Simplex3D(vec3(newPos.x, newPos.z, v_Time / 30.0));
+        newPos.y += 3.0 * disp1 + 2.0 * disp2;
+        newPos.z += disp1 + disp2;
+    }
+
+    mat4 m_ModelView = m_View * m_Model;
+    vec4 tmp_Pos = m_ModelView * newPos;
+
+    o_Norm = normalize(m_ModelView * v_Norm).xyz;
+    o_Light0 = (m_View * v_Light0).xyz;
+    o_Light1 = (m_View * v_Light1).xyz;
+    o_Camera = normalize(-tmp_Pos).xyz;
+    
+    if (v_Light0.w != 0.0 )
+          o_Light0 = o_Light0 - tmp_Pos.xyz;
+          
+    if (v_Light1.w != 0.0 )
+		  o_Light1 = o_Light1 - tmp_Pos.xyz;
+
+    f_TexCoord = v_TexCoord;
+    f_vertexHeight = v_Pos[1];
+    gl_Position = m_Proj * tmp_Pos;
+} 
+</script>
+
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+precision mediump float;
+
+varying vec3 o_Norm;
+varying vec3 o_Camera;
+varying vec3 o_Light0;
+varying vec3 o_Light1;
+varying vec2 f_TexCoord;
+varying float f_vertexHeight;
+varying float f_biomeType;
+
+uniform vec3 light_Ambient0, light_Diffuse0, light_Specular0;
+uniform vec3 light_Ambient1, light_Diffuse1, light_Specular1;
+
+uniform float MAX_HEIGHT;
+
+uniform sampler2D Tex_grass_diff;
+uniform sampler2D Tex_snow_diff;
+uniform sampler2D Tex_rock_diff;
+uniform sampler2D Tex_sand_diff;
+uniform sampler2D Tex_beach_diff;
+uniform sampler2D Tex_forest_diff;
+uniform sampler2D Tex_water_diff;
+
+uniform sampler2D Tex_snow_spec;
+uniform sampler2D Tex_rock_spec;
+uniform sampler2D Tex_sand_spec;
+
+vec4 biomeDiff(float height) {
+    float scaledHeight = height / MAX_HEIGHT;
+    vec4 grassColor = texture2D(Tex_grass_diff, f_TexCoord);
+    vec4 snowColor = texture2D(Tex_snow_diff, f_TexCoord);
+    vec4 rockColor = texture2D(Tex_rock_diff, f_TexCoord);
+    vec4 sandColor = texture2D(Tex_sand_diff, f_TexCoord);
+    vec4 beachColor = texture2D(Tex_beach_diff, f_TexCoord);
+    vec4 forestColor = texture2D(Tex_forest_diff, f_TexCoord);
+    vec4 waterColor = texture2D(Tex_water_diff, f_TexCoord);
+
+    if (scaledHeight < 0.04) {
+        return waterColor;
+    }
+
+    if (scaledHeight < 0.15) {
+       return grassColor;
+    }
+
+    if (scaledHeight < 0.2) {
+        return mix(grassColor, rockColor, 0.7);
+    }
+
+    if (scaledHeight < 0.3) {
+        return rockColor;
+    }
+
+    if (scaledHeight < 0.4) {
+        return mix(rockColor, snowColor, 0.7);
+    }
+
+    return snowColor;
+}
+
+vec4 biomeSpec(float height) {
+    float scaledHeight = height / MAX_HEIGHT;
+    vec4 grassColor = vec4(0.0);
+    vec4 snowColor = texture2D(Tex_snow_spec, f_TexCoord);
+    vec4 rockColor = texture2D(Tex_rock_spec, f_TexCoord);
+    vec4 sandColor = texture2D(Tex_sand_spec, f_TexCoord);
+    vec4 beachColor = vec4(0.0);
+    vec4 forestColor = vec4(0.0);
+    vec4 waterColor = vec4(0.0);
+
+    if (scaledHeight < 0.04) {
+        return waterColor;
+    }
+
+    if (scaledHeight < 0.15) {
+       return grassColor;
+    }
+
+    if (scaledHeight < 0.2) {
+        return mix(grassColor, rockColor, 0.7);
+    }
+
+    if (scaledHeight < 0.3) {
+        return rockColor;
+    }
+
+    if (scaledHeight < 0.4) {
+        return mix(rockColor, snowColor, 0.7);
+    }
+
+    return snowColor;
+}
+
+void main()
+{   
+    vec3 N = normalize(o_Norm);
+    vec3 E = normalize(o_Camera);
+    vec3 L0 = normalize(o_Light0);
+    vec3 H0 = normalize(L0 + E);
+    
+    vec3 specular = vec3(0.0);
+
+    vec3 L1 = normalize(o_Light1);
+    vec3 H1 = normalize(L1 + E);
+
+    vec4 texelColorDiff = biomeDiff(f_vertexHeight);
+    vec3 kd = texelColorDiff.rgb;
+
+    vec3 ambient0 = kd * light_Ambient0;
+    vec3 ambient1 = kd * light_Ambient1;
+
+    float nl_0 = max(dot(L0, N), 0.0);
+    float nl_1 = max(dot(L1, N), 0.0);
+
+    vec3 diffuse0 = kd * nl_0 * light_Diffuse0;
+    vec3 diffuse1 = kd * nl_1 * light_Diffuse1;
+
+    vec4 texelColorSpec = biomeSpec(f_vertexHeight);
+
+    float ks0 = pow(max(dot(N, H0), 0.0), texelColorSpec.a);
+    float ks1 = pow(max(dot(N, H1), 0.0), texelColorSpec.a);
+
+    vec3 specular0 = ks0 * texelColorSpec.rgb * light_Specular0;
+	vec3 specular1 = ks1 * texelColorSpec.rgb * light_Specular1;
+
+	if (dot(L0, N) < 0.0) 
+        specular0 = vec3(0.0, 0.0, 0.0);
+        
+	if (dot(L1, N) < 0.0) 
+	    specular1 = vec3(0.0, 0.0, 0.0);
+
+    gl_FragColor.xyz = ambient0 + diffuse0 + specular0 + ambient1 + diffuse1 + specular1;
+    gl_FragColor.a = texelColorDiff.a;
+}
+
+</script>
+
+<body>
+    <canvas id="gl-canvas" width="1500" height="730">
+        Oops ... your browser doesn't support the HTML5 canvas element
+    </canvas>
+</body>
+
+<script type="text/javascript" src="./Common/webgl-utils.js"></script>
+<script type="text/javascript" src="./Common/initShaders.js"></script>
+<script type="text/javascript" src="./Common/MV.js"></script>
+<script type="text/javascript" src="simplex-noise.js"></script>
+<script type="text/javascript" src="noise.js"></script>
+<script type="text/javascript" src="object3d.js"></script>
+<script type="text/javascript" src="camera.js"></script>
+<script type="text/javascript" src="light.js"></script>
+<script type="text/javascript" src="terrain.js"></script>
+<script type="text/javascript" src="main.js"></script>
+
+
+
+</html>
