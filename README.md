@@ -12,3 +12,4 @@ Procedural terrain generator in WebGL written for the Fundamentals of Computer G
 - Phong shading
 - Camera movement
 - Trackball movement
+- Water ripple effect using 3D Simplex noise
