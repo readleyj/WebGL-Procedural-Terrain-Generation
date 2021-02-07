@@ -1,5 +1,5 @@
 # WebGL-Procedural-Terrain-Generation
-Procedural terrain generator in WebGL written for the Fundamentals of Computer Graphics course at ADA University
+Procedural terrain generator in WebGL written for the Fundamentals of Computer Graphics course at ADA University. The project uses the Common library from the companion code of Interactive Computer Graphics (7th edition).
 
 ![image](image.png)
 
